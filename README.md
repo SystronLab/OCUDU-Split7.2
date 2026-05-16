@@ -179,15 +179,19 @@ These ports carry the actual Split 7.2 traffic between the DU and RU.
 
 Next, follow the official srsRAN Falcon switch instructions:
 
+Heads up:
+- SyncCenter 
+GNSS and not GPS
+Check the checkbox and click Apply
+
+- PTP Clocks 
+There are two instaces shown. You can add all the ports to one instance and it's okay
+
+-VLAN
+Port 21 is the Mgmt port. Keep it as shown in the image. If you change it, you will lose access to the Web GUI
+
 https://docs.srsran.com/projects/project/en/latest/tutorials/source/oranRU/source/switches/falcon.html#falcon-rx-switch
 
-After completing the VLAN configuration step, you will no longer have access to:
-
-```text
-http://192.168.1.90
-```
-
-This is expected behaviour after the management VLAN configuration changes.
 
 ### Verify DU Receives PTP from the Falcon
 
