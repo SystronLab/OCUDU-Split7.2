@@ -59,7 +59,7 @@ sudo minicom -b 115200 -D /dev/ttyUSB0
 Press:
 
 ```text
-CTRL A, then O
+CTRL A -> leave both -> O
 ```
 
 This opens the configuration menu.
