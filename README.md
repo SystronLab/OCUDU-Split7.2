@@ -128,7 +128,7 @@ ip address 192.168.1.90
 
 ---
 
-## Connect to the Management Interface
+### Connect to the Management Interface
 
 Connect an Ethernet cable from the **MGMT** port on the switch to your server.
 
@@ -141,7 +141,7 @@ Netmask:   255.255.255.0
 
 ---
 
-## Verify Connectivity
+### Verify Connectivity
 
 ```bash
 ping 192.168.1.90
@@ -149,7 +149,7 @@ ping 192.168.1.90
 
 ---
 
-## Access the Web GUI
+### Access the Web GUI
 
 Open:
 
@@ -182,7 +182,7 @@ This is the telecom dataplane.
 
 ---
 
-## Example Setup
+### Example Setup
 
 ```text
 Server ens7f1  -> Switch 10G Port
