@@ -91,7 +91,10 @@ Password: 1234
 ### Configure Management IP
 
 ```text
-Falcon# configure terminal interface vlan 1 ip address 192.168.1.90 255.255.255.0 exit
+Falcon# configure terminal
+Falcon(config)# interface vlan 1
+Falcon(config-if-vlan)# ip address 192.168.1.90 255.255.255.0
+exit
 ```
 
 Power cycle the switch
