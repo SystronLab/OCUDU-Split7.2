@@ -188,7 +188,7 @@ SyncCenter:
   - Check the checkbox and click Apply
 
 PTP Clocks:
-
+  - VID -> 1588
   - There are two instaces shown. You can add all the ports to one instance and it's okay
 
 VLAN:
