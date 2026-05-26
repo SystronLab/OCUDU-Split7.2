@@ -278,7 +278,14 @@ logging_level 6
 ### Run ptp4l
 
 ```bash
-sudo ptp4l -f ~/ptp4l.conf -i ens7f1 -m
+ifconfig ens7f1 mtu 9600 up
+sudo timedatectl set-ntp false
+```
+Start them in this order.
+
+Terminal 1:
+```bash
+sudo ptp4l -2 -i ens7f1 -f ~/ptp4l.conf -m
 ```
 
 Example output:
@@ -311,7 +318,22 @@ This is the key line:
 ```text
 UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
 ```
-That means ens7f1 hardware clock is synchronized to the Falcon Grandmaster
+In the above output, the rms value can be used to determine if the PTP sync is correct, for this we look for a value < 10.
+Then leave it running.
+
+Terminal 2:
+```bash
+sudo phc2sys -s ens7f1 -w -m -R 8 -f ~/ptp4l.conf
+```
+
+Example output:
+```text
+phc2sys[4348.303]: CLOCK_REALTIME phc offset       -25 s2 freq   +8026 delay   1467
+phc2sys[4348.428]: CLOCK_REALTIME phc offset       -11 s2 freq   +8033 delay   1466
+```
+
+The first value here is used to determine if the PTP sync is correct, for this we look for a value in the range of -100 to 100.
+
 
 Once this works perfectly, save this configuration of the switch so that it persists even after reboots.
 Log into the Falcon# terminal and run:
