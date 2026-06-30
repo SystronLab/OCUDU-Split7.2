@@ -180,7 +180,7 @@ These ports carry the actual Split 7.2 traffic between the DU and RU.
 
 # 4. Falcon PTP Configuration
 
-Next, follow the official srsRAN Falcon switch instructions:
+Next, follow the official OCUDU Falcon switch instructions:
 
 SyncCenter: 
 
@@ -351,7 +351,7 @@ Now we move into the RU Integration (Open Fronthaul)
 
 # Benetel RAN 650 
 
-Connect the Benetel port (Fiber 1) to Port 2 on the switch (Ports 1 and 2 were included in the setup. The srsRAN switch config documentation linked above shows 13 onwards but we also added these two ports in the list)
+Connect the Benetel port (Fiber 1) to Port 2 on the switch (Ports 1 and 2 were included in the setup. The switch config documentation linked above shows 13 onwards but we also added these two ports in the list)
 
 RU Management access:
 ```text
