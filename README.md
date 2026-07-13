@@ -197,6 +197,8 @@ VLAN:
 
 https://docs.srsran.com/projects/project/en/latest/tutorials/source/oranRU/source/switches/falcon.html#falcon-rx-switch
 
+Make sure you add Vlan 3 as well
+![Alt text](VLAN.png)
 
 ### Verify DU Receives PTP from the Falcon
 
