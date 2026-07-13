@@ -278,7 +278,7 @@ logging_level 6
 ### Run ptp4l
 
 ```bash
-ifconfig ens7f1 mtu 9600 up
+sudo ifconfig ens7f1 mtu 9600 up
 sudo timedatectl set-ntp false
 ```
 Start them in this order.
@@ -352,6 +352,10 @@ Now we move into the RU Integration (Open Fronthaul)
 # Benetel RAN 650 
 
 Connect the Benetel port (Fiber 1) to Port 2 on the switch (Ports 1 and 2 were included in the setup. The switch config documentation linked above shows 13 onwards but we also added these two ports in the list)
+
+Assign ip address to ens7f1 (Connected to the switch)
+IP address: 10.10.0.1
+Netmask: 255.255.255.0
 
 RU Management access:
 ```text
