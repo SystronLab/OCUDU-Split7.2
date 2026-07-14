@@ -1,393 +1,407 @@
-# Falcon-RX/812/G Switch Setup Guide
+# RAN650 Cell Broadcast and Troubleshooting
 
-## Connecting the Switch to the Server
+This document records the configuration that made the `00101` n78 network visible on a Google Pixel 8. It also records the checks that isolated the fault, because a synchronized and operational RU does not necessarily mean that Open Fronthaul traffic is reaching the radio.
 
-The switch has the following ports/interfaces:
+> Current result: the Pixel 8 can discover the network. UE attachment is not yet working. No PRACH is decoded by the gNB, so authentication and the Open5GS subscriber configuration are not yet involved in the failure.
 
-- **USB RS232 Console Port (Red USB Port)**  
-  Connect to a USB port on the server.
-
-- **MGMT Ethernet Port**  
-  Connect to a 1G Ethernet port on the server.
-
-- **1/10G Switching Ports**  
-  Connect to the 10G Ethernet port on the server.
-
-- **GNSS ANT (5V)**  
-  Connect the GNSS antenna.
-
----
-
-# 1. USB Connection (Console Access)
-
-This is used for low level console access.
-
-It works even when:
-
-- No IP is configured
-- The network is broken
-- The management interface is unreachable
-
-You use it for:
-
-- Initial setup
-- Recovery
-- Factory configuration
-- Assigning the management IP
-- Debugging
-
-### Connect via USB Console
-
-Turn on the switch and connect it to the server using a USB cable  
-(red USB port on the switch).
-
-### Check USB Serial Device
-
-```bash
-ls /dev/tty*
-```
-
-### Install and Open Minicom
-
-```bash
-sudo apt install minicom
-sudo minicom -b 115200 -D /dev/ttyUSB0
-```
-
-### Configure Minicom
-
-Press:
+## Hardware and software snapshot
 
 ```text
-CTRL A -> leave both -> O
+DU NIC:             ens7f1
+DU NIC MAC:         ec:e7:a7:0f:7c:01
+DU management IP:   10.10.0.1/24
+
+Falcon management:  192.168.1.90
+Falcon DU port:      10GigabitEthernet 1/1
+Falcon RU port:      10GigabitEthernet 1/2
+
+RAN650 management:  10.10.0.100
+RAN650 primary MAC:  8c:1f:64:d1:12:e0
+RAN650 secondary:    8c:1f:64:d1:12:e1
+RAN650 firmware:     RAN650-1v1.0.4-dda1bf5
+RAN650 hardware:     1.3.1
+
+OCUDU commit:        45b51f9a27
+Band/frequency:      n78 / 3410.1 MHz
+Bandwidth/MIMO:      100 MHz / 4T2R
+PLMN/PCI/TAC:        00101 / 1 / 7
+OFH CP/UP VLAN:      3
+PTP domain:          24
 ```
 
-This opens the configuration menu.
+The primary RAN650 MAC ending in `e0` is the correct `ru_mac_addr`. The secondary MAC ending in `e1` did not receive gNB fronthaul traffic in this setup.
 
-Go to:
+## Root cause of the invisible cell
+
+The gNB transmitted valid Open Fronthaul frames from `ens7f1`, but the RAN650 received no VLAN 3 frames. A DU-side capture showed small C-plane frames and large U-plane frames, while RU-side packet and MAC counters showed none.
+
+The Falcon contained VLANs `1`, `2`, and `1588`, but VLAN `3` did not exist. PTP could therefore lock successfully on VLAN 1588 while all CP/UP fronthaul traffic on VLAN 3 was discarded.
+
+Creating and trunking VLAN 3 across the DU and RU ports was the decisive fix that made the cell appear on the phone.
+
+## Falcon VLAN 3 fix
+
+Verify the learned port mapping:
 
 ```text
-Serial port setup
+show mac address-table
 ```
 
-Verify the following values:
+The PTP entries identified the ports:
 
 ```text
-Serial Device: /dev/ttyUSB0
-Bps/Par/Bits: 115200 8N1
-Hardware Flow Control: Off
-Software Flow Control: Off
+Dynamic 1588 8c:1f:64:d1:12:e0 10GigabitEthernet 1/2
+Dynamic 1588 ec:e7:a7:0f:7c:01 10GigabitEthernet 1/1
 ```
 
-Save setup as default (`dfl`).
-
-### Login to the Switch
+Create VLAN 3 and allow it on the DU and RU trunks:
 
 ```text
-Username: moose
-Password: 1234
-```
-
-### Configure Management IP
-
-```text
-Falcon# configure terminal
-Falcon(config)# interface vlan 1
-Falcon(config-if-vlan)# ip address 192.168.1.90 255.255.255.0
+configure terminal
+vlan 3
+interface 10GigabitEthernet 1/1
+switchport trunk allowed vlan 1,2,3,1588
 exit
+interface 10GigabitEthernet 1/2
+switchport trunk allowed vlan 1,2,3,1588
+exit
+end
 ```
 
-Power cycle the switch
-
----
-
-# 2. MGMT Ethernet Port
-
-The MGMT Ethernet port is used for:
-
-- Web GUI access
-- SSH
-- Switch administration
-- PTP configuration
-- VLAN configuration
-- Monitoring
-
-Earlier, the following configuration assigned an IP address to the switch management interface:
+Verify and save:
 
 ```text
-interface vlan 1
-ip address 192.168.1.90
-```
-
-### Connect to the Management Interface
-
-Connect an Ethernet cable from the **MGMT** port on the switch to your server.
-
-Assign the connected Ethernet interface on the server the following manual IP:
-
-```text
-IP Address: 192.168.1.50
-Netmask:   255.255.255.0
-```
-
-### Verify Connectivity
-
-```bash
-ping 192.168.1.90
-```
-
-### Access the Web GUI
-
-Open:
-
-```text
-http://192.168.1.90
-```
-
-Login credentials:
-
-```text
-Username: moose
-Password: 1234
-```
-
----
-
-# 3. 1/10G Switching Ports
-
-The next phase is to configure the actual dataplane ports via the Web GUI.
-
-These ports carry:
-
-- Open Fronthaul
-- eCPRI
-- PTP
-- Ethernet switching traffic
-- VLAN traffic
-
-This is the telecom dataplane.
-
-### Example Setup
-
-```text
-Server ens7f1  -> Switch 10G Port
-RU FH   -> Switch another 10G Port
-```
-
-These ports carry the actual Split 7.2 traffic between the DU and RU.
-
----
-
-# 4. Falcon PTP Configuration
-
-Next, follow the official OCUDU Falcon switch instructions:
-
-SyncCenter: 
-
-  - GNSS and not GPS:
-  - Check the checkbox and click Apply
-
-PTP Clocks:
-  - VID -> 1588
-  - There are two instaces shown. You can add all the ports to one instance and it's okay
-
-VLAN:
-
-- Port 21 is the Mgmt port. Keep it as shown in the image. If you change it, you will lose access to the Web GUI
-
-https://docs.srsran.com/projects/project/en/latest/tutorials/source/oranRU/source/switches/falcon.html#falcon-rx-switch
-
-
-### Verify DU Receives PTP from the Falcon
-
-Install Linux PTP tools:
-
-```bash
-sudo apt update
-sudo apt install linuxptp -y
-```
-
-### Verify ptp4l Installation
-
-```bash
-which ptp4l
-```
-
-You should get:
-
-```text
-/usr/sbin/ptp4l
-```
-
-### Verify Incoming PTP Traffic
-
-Before running `ptp4l`, verify whether any PTP traffic exists on `ens7f1`.
-
-```bash
-sudo tcpdump -i ens7f1 -e
-```
-
-If you see traffic, your Falcon switch is successfully acting as a PTP Grandmaster and `ens7f1` is receiving telecom timing packets correctly.
-
-Example output:
-
-```text
-tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
-listening on ens7f1, link-type EN10MB (Ethernet), snapshot length 262144 bytes
-
-14:53:55.148540 00:05:80:08:78:c5 (oui Unknown) > 01:1b:19:00:00:00 (oui Unknown), ethertype PTP (0x88f7), length 60:
-PTPv2, v1 compat : no, msg type : sync msg, length : 44, domain : 24,
-reserved1 : 0, Flags [none], NS correction : 0,
-sub NS correction : 18649088, reserved2 : 0,
-clock identity : 0x580fffe0878c5, port id : 1,
-seq id : 37886, control : 0 (sync msg),
-log message interval : 252,
-originTimeStamp : 1778939672 seconds, 146914416 nanoseconds
-```
-
-
-### Important Details from Captured Data
-
-You will need the PTP domain value for the next configuration step.
-
-Example:
-
-```text
-PTPv2
-domain 24
-```
-
-### Create ptp4l Configuration
-
-```bash
-nano ~/ptp4l.conf
-```
-
-Add the following:
-
-```text
-[global]
-domainNumber 24
-slaveOnly 1
-time_stamping hardware
-network_transport L2
-delay_mechanism E2E
-logging_level 6
-```
-
-### Run ptp4l
-
-```bash
-sudo ifconfig ens7f1 mtu 9600 up
-sudo timedatectl set-ntp false
-```
-Start them in this order.
-
-Terminal 1:
-```bash
-sudo ptp4l -2 -i ens7f1 -f ~/ptp4l.conf -m
-```
-
-Example output:
-
-```text
-systron@systronlab-hp-z8-1:~$ sudo ptp4l -f ~/ptp4l.conf -i ens7f1 -m
-
-ptp4l[11262.382]: selected /dev/ptp3 as PTP clock
-ptp4l[11262.412]: port 1: INITIALIZING to LISTENING on INIT_COMPLETE
-ptp4l[11262.412]: port 0: INITIALIZING to LISTENING on INIT_COMPLETE
-ptp4l[11262.517]: port 1: new foreign master 000580.fffe.0878c5-1
-ptp4l[11262.647]: selected best master clock 000580.fffe.0878c5
-ptp4l[11262.647]: updating UTC offset to 37
-ptp4l[11262.647]: port 1: LISTENING to UNCALIBRATED on RS_SLAVE
-ptp4l[11264.504]: port 1: minimum delay request interval 2^-4
-ptp4l[11264.716]: port 1: UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
-ptp4l[11264.968]: rms 22436429037 max 33920692332 freq -129 +/- 100 delay 2166 +/- 1
-ptp4l[11265.473]: rms 8 max 13 freq -191 +/- 6 delay 2166 +/- 1
-ptp4l[11265.978]: rms 8 max 12 freq -181 +/- 7 delay 2165 +/- 0
-ptp4l[11266.483]: rms 4 max 9 freq -189 +/- 7 delay 2164 +/- 1
-ptp4l[11266.988]: rms 4 max 8 freq -190 +/- 6 delay 2163 +/- 0
-ptp4l[11267.493]: rms 4 max 8 freq -192 +/- 7 delay 2164 +/- 0
-```
-
-
-### Important Verification
-
-This is the key line:
-
-```text
-UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
-```
-In the above output, the rms value can be used to determine if the PTP sync is correct, for this we look for a value < 10.
-Then leave it running.
-
-Terminal 2:
-```bash
-sudo phc2sys -s ens7f1 -w -m -R 8 -f ~/ptp4l.conf
-```
-
-Example output:
-```text
-phc2sys[4348.303]: CLOCK_REALTIME phc offset       -25 s2 freq   +8026 delay   1467
-phc2sys[4348.428]: CLOCK_REALTIME phc offset       -11 s2 freq   +8033 delay   1466
-```
-
-The first value here is used to determine if the PTP sync is correct, for this we look for a value in the range of -100 to 100.
-
-
-Once this works perfectly, save this configuration of the switch so that it persists even after reboots.
-Log into the Falcon# terminal and run:
-
-```text
+show vlan
+show running-config interface 10GigabitEthernet 1/1
+show running-config interface 10GigabitEthernet 1/2
+show mac address-table
 copy running-config startup-config
 ```
-Ouput should be:
-```text
-Building configuration... % Saving 6895 bytes to flash:startup-config 2026-05-21T09:18:58.095+00:00: DEVICE configuration changed (copied to startup-config) from local
-```
-After saving the configuration, power cycle the switch and test the PTP commands again.
 
-Now we move into the RU Integration (Open Fronthaul)
-
-# Benetel RAN 650 
-
-Connect the Benetel port (Fiber 1) to Port 2 on the switch (Ports 1 and 2 were included in the setup. The switch config documentation linked above shows 13 onwards but we also added these two ports in the list)
-
-Assign ip address to ens7f1 (Connected to the switch)
-IP address: 10.10.0.1
-Netmask: 255.255.255.0
-
-RU Management access:
-```text
-sudo ip addr add 10.10.0.1/24 dev ens7f1
-
-ping 10.10.0.100
-
-ssh root@10.10.0.100
-```
-## Next step inside the RU
-
-Check RU synchronization state
+Expected VLAN membership:
 
 ```text
-cat /var/syncmon/sync-state
+VLAN  Name       Interfaces
+----  ---------  ----------
+1     default    Gi 1/21 10G 1/1-20
+2     VLAN0002   10G 1/1-20
+3     VLAN0003   10G 1/1-2
 ```
-Output should be 0 (means locked)
+
+Both fronthaul interfaces should contain:
 
 ```text
-cat /etc/ru-sync-mode
+switchport trunk native vlan 1588
+switchport trunk allowed vlan 1-3,1588
+switchport mode trunk
 ```
 
-Output should be PTP
+Do not change the management port, `GigabitEthernet 1/21`.
 
-If you get these outputs, it means the RAN650 is synchronized via the Falcon Grandmaster
+## Verify fronthaul before changing RF parameters
 
-Next run,
+Configure and inspect the DU NIC:
+
+```bash
+sudo ip link set ens7f1 mtu 9000 up
+ip -details link show ens7f1
+sudo tcpdump -nn -e -i ens7f1 'vlan 3' -c 20
+```
+
+Expected observations:
+
+- Source MAC is `ec:e7:a7:0f:7c:01`.
+- Destination MAC is `8c:1f:64:d1:12:e0`.
+- VLAN ID is `3`.
+- Small frames are OFH C-plane traffic.
+- Frames around 7.6 kB are OFH U-plane traffic.
+
+Falcon port counters provide another useful check:
 
 ```text
-oru_vlan_mac_info
+show interface 10GigabitEthernet 1/1 statistics
+show interface 10GigabitEthernet 1/2 statistics
 ```
 
-## RAN650 Cell Broadcast Result
+Port `1/1` should receive jumbo frames from the DU and port `1/2` should transmit them toward the RU. In the working test, `Tx 1519-` on port `1/2` increased continuously with zero oversize errors.
 
-The network is now visible on a Google Pixel 8. The complete working path, troubleshooting evidence, reboot caveats, and remaining UE attachment limitation are documented in [RAN650 Cell Broadcast and Troubleshooting](docs/RAN650_CELL_BROADCAST.md).
+## RAN650 RU configuration
+
+The initial visible-cell test used these `/etc/ru_config.cfg` values:
+
+```ini
+mimo_mode=1_2_3_4_4x2
+downlink_scaling=0
+prach_format=short
+compression=dynamic_compressed
+lf_prach_compression_enable=false
+cplane_per_symbol_workaround=disabled
+cuplane_dl_coupling_sectionID=disabled
+flexran_prach_workaround=enabled
+dl_ul_tuning_special_slot=0xfd00000
+```
+
+After boot, verify:
+
+```bash
+tail -30 /tmp/logs/radio_sync_status
+tail -40 /tmp/logs/radio_status
+tail -20 /tmp/logs/o_ru_app.log
+```
+
+Required state:
+
+```text
+PTP locked, synchronizing system time.
+[INFO] Radio synchronized
+[INFO] Radio bringup complete
+[INFO] Transmission enabled (4x2)
+[oper::enabled]
+[availability::normal]
+```
+
+### Repairing `oper::disabled / faulty`
+
+On this RU, sysrepo initially contained only base IETF modules. The O-RAN modules had not been initialized, leaving the RU disabled/faulty even though the radio hardware was healthy.
+
+Back up sysrepo and check its modules:
+
+```bash
+tar -czf /home/root/sysrepo-before-firstboot-init.tgz /etc/sysrepo
+sysrepoctl -l
+```
+
+If the vendor O-RAN modules are missing, run:
+
+```bash
+/usr/sbin/mplane-init.sh
+mkdir -p /var/dhcp_params /etc/mplane/vlan
+```
+
+The RU also required the management IPv4 runtime status file. Store this tmpfiles entry in `/etc/tmpfiles.d/static-mplane.conf`:
+
+```text
+f /tmp/status/mplane_if_ipv4 0644 root root - 10.10.0.100\x208\x20eth0
+```
+
+After reboot and RF initialization, `o_ru_app.log` should transition from `oper::disabled` to `oper::enabled` with availability `NORMAL`.
+
+Only run `mplane-init.sh` when the O-RAN sysrepo modules are actually missing. Back up `/etc/sysrepo` first.
+
+## Important: volatile RAN650 registers
+
+Firmware `1.0.4` restored factory DU MAC filters and cleared antenna masks after every RU reboot. This made the cell disappear even though VLAN 3 and the gNB configuration remained correct.
+
+The incorrect factory filters were based on `00:11:22:33:44:66/67`. After `Radio bringup complete`, restore the real DU MAC and 4T2R masks:
+
+```bash
+registercontrol -w C0319 -x a70f7c01
+registercontrol -w C031A -x ece7
+registercontrol -w C0315 -x a70f7c01
+registercontrol -w C0316 -x ece7
+registercontrol -w C0300 -x 01010101
+registercontrol -w C0302 -x 00000101
+```
+
+Register meanings:
+
+```text
+C0319/C031A  Expected DU MAC for C-plane
+C0315/C0316  Expected DU MAC for U-plane
+C0300        Four enabled downlink/TX paths
+C0302        Two enabled uplink/RX paths
+```
+
+Verify:
+
+```bash
+for reg in C0300 C0302 C0315 C0316 C0319 C031A; do
+  registercontrol -r "$reg"
+done
+```
+
+Expected values:
+
+```text
+C0300 = 0x01010101
+C0302 = 0x00000101
+C0315 = 0xa70f7c01
+C0316 = 0x0000ece7
+C0319 = 0xa70f7c01
+C031A = 0x0000ece7
+```
+
+Do not restart the gNB until the RU is PTP-locked, RF initialization has finished, and these registers are restored.
+
+## gNB Open Fronthaul configuration
+
+The important cell-broadcast settings are:
+
+```yaml
+ru_ofh:
+  ru_bandwidth_MHz: 100
+  t1a_max_cp_dl: 470
+  t1a_min_cp_dl: 419
+  t1a_max_cp_ul: 336
+  t1a_min_cp_ul: 285
+  t1a_max_up: 345
+  t1a_min_up: 294
+  ta4_max: 200
+  ta4_min: 0
+  is_prach_cp_enabled: false
+  compr_method_ul: bfp
+  compr_bitwidth_ul: 9
+  compr_method_dl: bfp
+  compr_bitwidth_dl: 9
+  compr_method_prach: bfp
+  compr_bitwidth_prach: 9
+  enable_ul_static_compr_hdr: false
+  enable_dl_static_compr_hdr: false
+  iq_scaling: 4.5
+  cells:
+    - network_interface: ens7f1
+      ru_mac_addr: 8c:1f:64:d1:12:e0
+      du_mac_addr: ec:e7:a7:0f:7c:01
+      vlan_tag_cp: 3
+      vlan_tag_up: 3
+      prach_port_id: [4, 5]
+      dl_port_id: [0, 1, 2, 3]
+      ul_port_id: [0, 1]
+
+cell_cfg:
+  dl_arfcn: 627340
+  band: 78
+  channel_bandwidth_MHz: 100
+  common_scs: 30
+  plmn: "00101"
+  tac: 7
+  pci: 1
+  nof_antennas_dl: 4
+  nof_antennas_ul: 2
+  prach:
+    prach_config_index: 159
+    prach_root_sequence_index: 1
+    zero_correlation_zone: 0
+  ssb:
+    ssb_block_power_dbm: 0
+  tdd_ul_dl_cfg:
+    dl_ul_tx_period: 10
+    nof_dl_slots: 7
+    nof_dl_symbols: 6
+    nof_ul_slots: 2
+    nof_ul_symbols: 4
+```
+
+Start the gNB with real-time priority:
+
+```bash
+cd ocudu/build/apps/gnb
+sudo chrt -f 99 ./gnb -c ./gnb.yml
+```
+
+Expected startup:
+
+```text
+Cell pci=1, bw=100 MHz, 4T2R, dl_arfcn=627340 (n78), dl_freq=3410.1 MHz
+N2: Connection to AMF on 127.0.1.100:38412 completed
+==== gNB started ===
+```
+
+## Confirm that the RU is transmitting
+
+Read the PDSCH counters twice:
+
+```bash
+registercontrol -r C0311
+registercontrol -r C031B
+sleep 2
+registercontrol -r C0311
+registercontrol -r C031B
+```
+
+Both values should increase. This confirms that downlink radio data is being processed and is stronger evidence than `oper::enabled` alone.
+
+Useful Open Fronthaul counters are:
+
+```bash
+for reg in C0340 C0342 C0344 C0346 C0348 C034A C034C; do
+  registercontrol -r "$reg"
+done
+```
+
+```text
+C0340  Total received OFH packets
+C0342  On-time U-plane packets
+C0344  Early U-plane packets
+C0346  Late U-plane packets
+C0348  On-time C-plane packets
+C034A  Early C-plane packets
+C034C  Late C-plane packets
+```
+
+`reportMacStatus.sh` can also confirm that `rx_stats_etherStatsPkts1519toXOctets` is increasing. A zero jumbo-frame counter while the DU transmits normally points back to the switch VLAN or MTU path.
+
+## Pixel 8 network scan and RF power
+
+Four suitable 50-ohm n78 antennas were connected for the OTA test.
+
+At the original 37 dBm RU setting, the phone needed to be moved away from the antennas to avoid possible receiver saturation. During later troubleshooting, the RU was reduced to 27 dBm; at that setting the phone had to move closer before `00101` appeared again.
+
+For an OTA test:
+
+1. Confirm all active ports are connected to suitable antennas or rated 50-ohm loads.
+2. Start at a safe distance from the RU.
+3. Toggle airplane mode.
+4. Open manual network selection.
+5. Look for `00101`, `001 01`, or an unnamed network.
+
+For a conducted RF setup, use correctly specified high-power attenuators. Never connect the RAN650 directly to a UE emulator, modem, or test instrument.
+
+## Current UE attachment limitation
+
+Cell discovery works, but the Pixel remains at `Connecting`. The gNB log shows no decoded PRACH preamble, RRC Setup, or Initial UE Message. The remaining failure is therefore before SIM authentication and Open5GS subscriber lookup.
+
+The symptoms match [srsRAN Project issue #1118](https://github.com/srsran/srsRAN_Project/issues/1118). A legacy long-PRACH experiment was also tested on firmware `1.0.4` using:
+
+```text
+prach_format=long
+prach_config_index=7
+C0321=0x1
+C0324=0xef780000
+RU transmit power=27 dBm
+iq_scaling=8
+```
+
+The cell remained visible at the appropriate distance, but no PRACH was decoded. The issue reporter achieved stable attachment only after:
+
+1. Upgrading the RAN650 to firmware `1.4.0`.
+2. Upgrading to a newer srsRAN build.
+3. Enabling DPDK for Open Fronthaul processing.
+
+These are the next planned steps. The current OCUDU process also reports repeated real-time timing-worker symbol skips, another reason to prioritize the newer build and DPDK path.
+
+## Fast troubleshooting decision tree
+
+```text
+RU cannot be pinged
+  -> Check 10.10.0.1/24 on ens7f1 and RU management cabling.
+
+RU PTP is not locked
+  -> Check Falcon GNSS/PTP, VLAN 1588, ptp4l, and phc2sys.
+
+RU is oper::disabled / faulty
+  -> Check sysrepo O-RAN modules and the M-plane runtime IP status file.
+
+DU sends VLAN 3 but RU receives no jumbo frames
+  -> Create/allow VLAN 3 on Falcon ports 1/1 and 1/2.
+
+RU receives OFH but PDSCH counters remain zero after a reboot
+  -> Restore the volatile DU MAC filters and 4T2R masks.
+
+PDSCH counters advance but the phone cannot see 00101
+  -> Check antennas, RF distance/power, ARFCN, SSB, and manual scan.
+
+Phone sees 00101 but stays on Connecting, with no RACH in the gNB log
+  -> Investigate PRACH/UL timing. For this firmware/build combination,
+     proceed with the RAN650 1.4.0, newer srsRAN, and DPDK upgrade.
+```
