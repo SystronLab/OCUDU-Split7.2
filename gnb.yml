@@ -1,31 +1,45 @@
-# This example configuration outlines how to configure the srsRAN Project CU/DU to use an O-RU and split 7.2. This is specifically for use
-# with the Benetel RAN550 RU. This config will create a single TDD MIMO cell transmitting in band 78, with 100 MHz bandwidth and 30 kHz sub-carrier-spacing.
-# The parameters used to configure the RU are found in the `ru_ofh` sub-section. This configuration makes used of the OFH Lib from SRS to enable split 7.2.
-
+# Tested with OCUDU c5acfa5d4c, DPDK 23.11 and RAN650 firmware 2.1.0.
+# The host assigns VLAN 3 to VF 0; do not add vlan_tag_cp/up here.
+# Adapt the PCI address, MAC addresses and core addresses for another host.
+ran_node_name: BENETEL
+gnb_id: 4
+gnb_id_bit_length: 22
+gnb_cu_up_id: 11
+gnb_du_id: 11
 cu_cp:
   amf:
-    addr: 127.0.1.100
-    bind_addr: 127.0.0.1
+    addrs:
+    - 10.53.1.2
+    port: 38412
+    bind_addrs:
+    - 10.53.1.1
     supported_tracking_areas:
-      - tac: 7
-        plmn_list:
-          - plmn: "00101"
-            tai_slice_support_list:
-              - sst: 1
-     
-  inactivity_timer: 7200                  
-
+    - tac: 7
+      plmn_list:
+      - plmn: '00101'
+        tai_slice_support_list:
+        - sst: 1
+        - sst: 1
+          sd: 1
+        - sst: 1
+          sd: 16777215
+  inactivity_timer: 7200
+  request_pdu_session_timeout: 60
+cu_up:
+  ngu:
+    socket:
+    - bind_addr: 10.53.1.1
 ru_ofh:
-  ru_bandwidth_MHz: 100
   t1a_max_cp_dl: 470
   t1a_min_cp_dl: 419
-  t1a_max_cp_ul: 336
-  t1a_min_cp_ul: 285
+  t1a_max_cp_ul: 510
+  t1a_min_cp_ul: 470
   t1a_max_up: 345
   t1a_min_up: 294
-  ta4_max: 400
-  ta4_min: 0
-  is_prach_cp_enabled: false
+  ta4_max: 331
+  ta4_min: 50
+  iq_scaling: 4.5
+  is_prach_cp_enabled: true
   compr_method_ul: bfp
   compr_bitwidth_ul: 9
   compr_method_dl: bfp
@@ -34,47 +48,109 @@ ru_ofh:
   compr_bitwidth_prach: 9
   enable_ul_static_compr_hdr: false
   enable_dl_static_compr_hdr: false
-  iq_scaling: 8.0
   cells:
-    - network_interface: ens7f1
-      ru_mac_addr: 8c:1f:64:d1:12:e0
-      du_mac_addr: ec:e7:a7:0f:7c:01
-      vlan_tag_cp: 3
-      vlan_tag_up: 3
-      prach_port_id: [4, 5]
-      dl_port_id: [0, 1, 2, 3]
-      ul_port_id: [0, 1]
-
+  - network_interface: 0000:75:10.1
+    ru_mac_addr: 8c:1f:64:d1:12:e0
+    du_mac_addr: ec:e7:a7:0f:7c:02
+    prach_port_id:
+    - 4
+    - 5
+    dl_port_id:
+    - 0
+    - 1
+    - 2
+    - 3
+    ul_port_id:
+    - 0
+    - 1
 cell_cfg:
-  dl_arfcn: 627340
+  dl_arfcn: 637212
   band: 78
   channel_bandwidth_MHz: 100
   common_scs: 30
-  plmn: "00101"
+  plmn: '00101'
   tac: 7
   pci: 1
   nof_antennas_dl: 4
   nof_antennas_ul: 2
+  pcg_p_nr_fr1: 23
   prach:
-    prach_config_index: 7
-    prach_frequency_start: 0
+    prach_config_index: 159
+    prach_frequency_start: 12
     prach_root_sequence_index: 1
     zero_correlation_zone: 0
+    ra_resp_window: 10
+    preamble_trans_max: 10
+    power_ramping_step_db: 2
+    preamble_rx_target_pw: -80
   ssb:
+    ssb_period: 10
     ssb_block_power_dbm: 0
+    pss_to_sss_epre_db: 0
+  srs:
+    period_ms: 20
+    max_nof_sym_per_slot: 2
+    nof_sym_per_resource: 1
+    tx_comb: 4
+    cyclic_shift_reuse: 1
+    sequence_id_reuse: 1
   tdd_ul_dl_cfg:
     dl_ul_tx_period: 10
     nof_dl_slots: 7
     nof_dl_symbols: 6
     nof_ul_slots: 2
     nof_ul_symbols: 4
-
+  ul_common:
+    p_max: 23
+  pucch:
+    p0_nominal: -90
+    sr_period_ms: 20
+    min_k1: 2
+  pdsch:
+    mcs_table: qam256
+    max_ue_mcs: 28
+    nof_harqs: 16
+    max_nof_harq_retxs: 2
+    olla_cqi_inc_step: 0.01
+    olla_target_bler: 0.05
+    olla_max_cqi_offset: 20
+    dc_offset: center
+  pusch:
+    mcs_table: qam64
+    max_ue_mcs: 28
+    max_nof_harq_retxs: 4
+    max_rank: 2
+    p0_nominal_with_grant: -76
+    msg3_delta_power: 8
+    min_k2: 2
+    olla_snr_inc_step: 0.05
+    olla_target_bler: 0.01
+    olla_max_snr_offset: 20
+  csi:
+    csi_rs_enabled: true
+    csi_rs_period: 20
+    pwr_ctrl_offset: 0
+  slicing:
+  - sst: 1
+    sched_cfg:
+      min_prb_policy_ratio: 0
+      max_prb_policy_ratio: 100
+expert_phy:
+  max_request_headroom_slots: 3
+  max_proc_delay: 6
+  pusch_dec_max_iterations: 6
+hal:
+  eal_args: --lcores (0-1)@(1-11,13-23) -a 0000:75:10.1
 log:
-  filename: /tmp/gnb.log
-  all_level: info
-
+  filename: /tmp/gnb-benetel.log
+  all_level: warning
+  ngap_level: info
+  rrc_level: info
+  ofh_level: warning
+  phy_level: warning
 pcap:
   mac_enable: false
-  mac_filename: /tmp/gnb_mac.pcap
+  mac_type: dlt
+  mac_filename: /tmp/gnb-benetel-mac.pcap
   ngap_enable: false
-  ngap_filename: /tmp/gnb_ngap.pcap
+  ngap_filename: /tmp/gnb-benetel-ngap.pcap

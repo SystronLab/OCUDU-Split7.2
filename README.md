@@ -1,389 +1,169 @@
-# Falcon-RX/812/G Switch Setup Guide
+# OCUDU Split 7.2: Benetel RAN650 + Falcon
 
-## Connecting the Switch to the Server
+Working lab setup, verified on **14 October 2026** with a **Pixel 8 Pro**: SIM registration, an `srsapn` data session, and host-to-phone ping all succeeded. The old cell-visible-but-no-attach setup has been replaced.
 
-The switch has the following ports/interfaces:
+## Tested setup
 
-- **USB RS232 Console Port (Red USB Port)**  
-  Connect to a USB port on the server.
-
-- **MGMT Ethernet Port**  
-  Connect to a 1G Ethernet port on the server.
-
-- **1/10G Switching Ports**  
-  Connect to the 10G Ethernet port on the server.
-
-- **GNSS ANT (5V)**  
-  Connect the GNSS antenna.
-
----
-
-# 1. USB Connection (Console Access)
-
-This is used for low level console access.
-
-It works even when:
-
-- No IP is configured
-- The network is broken
-- The management interface is unreachable
-
-You use it for:
-
-- Initial setup
-- Recovery
-- Factory configuration
-- Assigning the management IP
-- Debugging
-
-### Connect via USB Console
-
-Turn on the switch and connect it to the server using a USB cable  
-(red USB port on the switch).
-
-### Check USB Serial Device
-
-```bash
-ls /dev/tty*
-```
-
-### Install and Open Minicom
-
-```bash
-sudo apt install minicom
-sudo minicom -b 115200 -D /dev/ttyUSB0
-```
-
-### Configure Minicom
-
-Press:
+| Item | Value |
+| --- | --- |
+| RU | Benetel RAN650, hardware 1.3.1, firmware `RAN650-1v2.1.0-NM-0820797` |
+| Switch | Falcon-RX/812/G, management `192.168.1.90` |
+| Software | OCUDU `c5acfa5d4c`, DPDK 23.11, Open5GS 2.7.6 |
+| Host | Intel X550-T2, real-time Linux, IOMMU/SR-IOV enabled |
+| Cell | n78, 3558.18 MHz, ARFCN `637212`, 100 MHz, 30 kHz SCS, 4T2R |
+| Network | PLMN `00101`, TAC `7`, SST `1`, APN/DNN `srsapn` |
+| Timing / fronthaul | PTP domain `24`, native VLAN `1588`; C/U-plane VLAN `3` |
+| RF | RU power `27 dBm`; 30 dB attenuator on each of the four antenna paths |
 
 ```text
-CTRL A -> leave both -> O
+Host ens7f1 (10G) ── Falcon port 1/1
+Benetel Fiber 1   ── Falcon port 1/2
+Host eno1 (1G)   ── Falcon management port 1/21
+GNSS antenna    ── Falcon GNSS input
 ```
 
-This opens the configuration menu.
+The host management addresses are `192.168.1.50/24` on `eno1` and `10.10.0.1/24` on `ens7f1`. The RU is at `10.10.0.100`.
 
-Go to:
+## Files
 
-```text
-Serial port setup
-```
+- [gnb.yml](gnb.yml): tested OCUDU configuration, including the Docker core addresses.
+- [ru_config.cfg](ru_config.cfg): tested RU settings for firmware 2.1.0.
+- [ptp4l-domain24.conf](ptp4l-domain24.conf): host PTP configuration.
+- [start-ran650.sh](start-ran650.sh): host preparation and gNB startup.
+- [Troubleshooting](Troubleshoot_Network_Not_Visible.md): the faults found and checks to use.
 
-Verify the following values:
+## One-time setup
 
-```text
-Serial Device: /dev/ttyUSB0
-Bps/Par/Bits: 115200 8N1
-Hardware Flow Control: Off
-Software Flow Control: Off
-```
+### Falcon
 
-Save setup as default (`dfl`).
+Configure GNSS/PTP using the [Falcon guide](https://docs.srsran.com/projects/project/en/latest/tutorials/source/oranRU/source/switches/falcon.html#falcon-rx-switch). Use L2 PTP, domain 24, and VLAN 1588. Wait for GNSS lock and a green SyncCenter status.
 
-### Login to the Switch
+On the switch CLI, allow VLAN 3 on both fronthaul ports:
 
 ```text
-Username: moose
-Password: 1234
-```
-
-### Configure Management IP
-
-```text
-Falcon# configure terminal
-Falcon(config)# interface vlan 1
-Falcon(config-if-vlan)# ip address 192.168.1.90 255.255.255.0
+configure terminal
+vlan 3
 exit
-```
-
-Power cycle the switch
-
----
-
-# 2. MGMT Ethernet Port
-
-The MGMT Ethernet port is used for:
-
-- Web GUI access
-- SSH
-- Switch administration
-- PTP configuration
-- VLAN configuration
-- Monitoring
-
-Earlier, the following configuration assigned an IP address to the switch management interface:
-
-```text
-interface vlan 1
-ip address 192.168.1.90
-```
-
-### Connect to the Management Interface
-
-Connect an Ethernet cable from the **MGMT** port on the switch to your server.
-
-Assign the connected Ethernet interface on the server the following manual IP:
-
-```text
-IP Address: 192.168.1.50
-Netmask:   255.255.255.0
-```
-
-### Verify Connectivity
-
-```bash
-ping 192.168.1.90
-```
-
-### Access the Web GUI
-
-Open:
-
-```text
-http://192.168.1.90
-```
-
-Login credentials:
-
-```text
-Username: moose
-Password: 1234
-```
-
----
-
-# 3. 1/10G Switching Ports
-
-The next phase is to configure the actual dataplane ports via the Web GUI.
-
-These ports carry:
-
-- Open Fronthaul
-- eCPRI
-- PTP
-- Ethernet switching traffic
-- VLAN traffic
-
-This is the telecom dataplane.
-
-### Example Setup
-
-```text
-Server ens7f1  -> Switch 10G Port
-RU FH   -> Switch another 10G Port
-```
-
-These ports carry the actual Split 7.2 traffic between the DU and RU.
-
----
-
-# 4. Falcon PTP Configuration
-
-Next, follow the official OCUDU Falcon switch instructions:
-
-SyncCenter: 
-
-  - GNSS and not GPS:
-  - Check the checkbox and click Apply
-
-PTP Clocks:
-  - VID -> 1588
-  - There are two instaces shown. You can add all the ports to one instance and it's okay
-
-VLAN:
-
-- Port 21 is the Mgmt port. Keep it as shown in the image. If you change it, you will lose access to the Web GUI
-
-https://docs.srsran.com/projects/project/en/latest/tutorials/source/oranRU/source/switches/falcon.html#falcon-rx-switch
-
-Make sure you add Vlan 3 as well
-![Alt text](VLAN.png)
-
-### Verify DU Receives PTP from the Falcon
-
-Install Linux PTP tools:
-
-```bash
-sudo apt update
-sudo apt install linuxptp -y
-```
-
-### Verify ptp4l Installation
-
-```bash
-which ptp4l
-```
-
-You should get:
-
-```text
-/usr/sbin/ptp4l
-```
-
-### Verify Incoming PTP Traffic
-
-Before running `ptp4l`, verify whether any PTP traffic exists on `ens7f1`.
-
-```bash
-sudo tcpdump -i ens7f1 -e
-```
-
-If you see traffic, your Falcon switch is successfully acting as a PTP Grandmaster and `ens7f1` is receiving telecom timing packets correctly.
-
-Example output:
-
-```text
-tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
-listening on ens7f1, link-type EN10MB (Ethernet), snapshot length 262144 bytes
-
-14:53:55.148540 00:05:80:08:78:c5 (oui Unknown) > 01:1b:19:00:00:00 (oui Unknown), ethertype PTP (0x88f7), length 60:
-PTPv2, v1 compat : no, msg type : sync msg, length : 44, domain : 24,
-reserved1 : 0, Flags [none], NS correction : 0,
-sub NS correction : 18649088, reserved2 : 0,
-clock identity : 0x580fffe0878c5, port id : 1,
-seq id : 37886, control : 0 (sync msg),
-log message interval : 252,
-originTimeStamp : 1778939672 seconds, 146914416 nanoseconds
-```
-
-
-### Important Details from Captured Data
-
-You will need the PTP domain value for the next configuration step.
-
-Example:
-
-```text
-PTPv2
-domain 24
-```
-
-### Create ptp4l Configuration
-
-```bash
-nano ~/ptp4l.conf
-```
-
-Add the following:
-
-```text
-[global]
-domainNumber 24
-slaveOnly 1
-time_stamping hardware
-network_transport L2
-delay_mechanism E2E
-logging_level 6
-```
-
-### Run ptp4l
-
-```bash
-sudo ifconfig ens7f1 mtu 9600 up
-sudo timedatectl set-ntp false
-```
-Start them in this order.
-
-Terminal 1:
-```bash
-sudo ptp4l -2 -i ens7f1 -f ~/ptp4l.conf -m
-```
-
-Example output:
-
-```text
-systron@systronlab-hp-z8-1:~$ sudo ptp4l -f ~/ptp4l.conf -i ens7f1 -m
-
-ptp4l[11262.382]: selected /dev/ptp3 as PTP clock
-ptp4l[11262.412]: port 1: INITIALIZING to LISTENING on INIT_COMPLETE
-ptp4l[11262.412]: port 0: INITIALIZING to LISTENING on INIT_COMPLETE
-ptp4l[11262.517]: port 1: new foreign master 000580.fffe.0878c5-1
-ptp4l[11262.647]: selected best master clock 000580.fffe.0878c5
-ptp4l[11262.647]: updating UTC offset to 37
-ptp4l[11262.647]: port 1: LISTENING to UNCALIBRATED on RS_SLAVE
-ptp4l[11264.504]: port 1: minimum delay request interval 2^-4
-ptp4l[11264.716]: port 1: UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
-ptp4l[11264.968]: rms 22436429037 max 33920692332 freq -129 +/- 100 delay 2166 +/- 1
-ptp4l[11265.473]: rms 8 max 13 freq -191 +/- 6 delay 2166 +/- 1
-ptp4l[11265.978]: rms 8 max 12 freq -181 +/- 7 delay 2165 +/- 0
-ptp4l[11266.483]: rms 4 max 9 freq -189 +/- 7 delay 2164 +/- 1
-ptp4l[11266.988]: rms 4 max 8 freq -190 +/- 6 delay 2163 +/- 0
-ptp4l[11267.493]: rms 4 max 8 freq -192 +/- 7 delay 2164 +/- 0
-```
-
-
-### Important Verification
-
-This is the key line:
-
-```text
-UNCALIBRATED to SLAVE on MASTER_CLOCK_SELECTED
-```
-In the above output, the rms value can be used to determine if the PTP sync is correct, for this we look for a value < 10.
-Then leave it running.
-
-Terminal 2:
-```bash
-sudo phc2sys -s ens7f1 -w -m -R 8 -f ~/ptp4l.conf
-```
-
-Example output:
-```text
-phc2sys[4348.303]: CLOCK_REALTIME phc offset       -25 s2 freq   +8026 delay   1467
-phc2sys[4348.428]: CLOCK_REALTIME phc offset       -11 s2 freq   +8033 delay   1466
-```
-
-The first value here is used to determine if the PTP sync is correct, for this we look for a value in the range of -100 to 100.
-
-
-Once this works perfectly, save this configuration of the switch so that it persists even after reboots.
-Log into the Falcon# terminal and run:
-
-```text
+interface 10GigabitEthernet 1/1
+switchport mode trunk
+switchport trunk native vlan 1588
+switchport trunk allowed vlan 1,2,3,1588
+exit
+interface 10GigabitEthernet 1/2
+switchport mode trunk
+switchport trunk native vlan 1588
+switchport trunk allowed vlan 1,2,3,1588
+exit
+end
 copy running-config startup-config
 ```
-Ouput should be:
+
+Keep management port `GigabitEthernet 1/21` unchanged. PTP lock alone does not prove VLAN 3 is passing fronthaul traffic.
+
+### Host and software
+
+These instructions use the existing lab builds; the script does not install software or flash the RU. Install `linuxptp` and have Docker Compose, Python 3, and a DPDK-enabled OCUDU build available. The tested host uses CPU governor `performance` and kernel options `intel_iommu=on iommu=pt`.
+
+The script defaults to these installed paths under:
+
 ```text
-Building configuration... % Saving 6895 bytes to flash:startup-config 2026-05-21T09:18:58.095+00:00: DEVICE configuration changed (copied to startup-config) from local
+/home/mohit/Desktop/OpenRAN_Testbeds/Split_7.2/ocudu_parent/
+  ocudu_latest/build-dpdk/apps/gnb/gnb
+  dpdk-23.11/install/lib/x86_64-linux-gnu/
+  dpdk-23.11/usertools/dpdk-devbind.py
 ```
-After saving the configuration, power cycle the switch and test the PTP commands again.
 
-Now we move into the RU Integration (Open Fronthaul)
+For another installation, pass `sudo env RAN_DIR=/your/builds ./start-ran650.sh`. Adapt the NIC, PCI and MAC addresses in both the script and configs. See the [OCUDU installation guide](https://docs.ocudu.org/user_manual/installation/) for building the software.
 
-# Benetel RAN 650 
+The physical interface `ens7f1` stays on the kernel driver for PTP and RU management. DPDK uses only VF 0, `0000:75:10.1`:
 
-Connect the Benetel port (Fiber 1) to Port 2 on the switch (Ports 1 and 2 were included in the setup. The switch config documentation linked above shows 13 onwards but we also added these two ports in the list)
+| Interface | MAC |
+| --- | --- |
+| Host physical interface | `ec:e7:a7:0f:7c:01` |
+| DPDK VF / RU's configured DU address | `ec:e7:a7:0f:7c:02` |
+| RU primary fronthaul address | `8c:1f:64:d1:12:e0` |
 
-Assign ip address to ens7f1 (Connected to the switch)
-IP address: 10.10.0.1
-Netmask: 255.255.255.0
+**VLAN 3 is assigned to the VF by the host.** Do not add `vlan_tag_cp` or `vlan_tag_up` to this `gnb.yml`; the NIC inserts the tag. Keep the PF and VF MACs different.
 
-RU Management access:
-```text
-sudo ip addr add 10.10.0.1/24 dev ens7f1
+### RU
 
-ping 10.10.0.100
+Use the settings in `ru_config.cfg` for the tested firmware. Back up the existing file before installing it from this repository:
 
+```bash
+ssh root@10.10.0.100 'cp -p /etc/ru_config.cfg /etc/ru_config.cfg.before-ocudu'
+scp ru_config.cfg root@10.10.0.100:/etc/ru_config.cfg
+```
+
+Check `cat /etc/ru-sync-mode` on the RU: it should be `PTP`. Reboot the RU after host timing is ready, as described below.
+
+The important changes are short PRACH, dynamic compression, `flexran_prach_workaround=disabled`, and both DU MAC fields set to the VF MAC ending in `02`. The old long-PRACH experiment and firmware 1.0.4 register repair steps are not part of this setup.
+
+### Core and SIM
+
+The config expects Open5GS at `10.53.1.2`, with the host's N2/N3 address `10.53.1.1`. Use PLMN `001/01`, TAC `7`, SST `1`, and DNN `srsapn`. Provision your SIM's IMSI, Ki and OPC privately in the core; no SIM secrets are stored here.
+
+Save subscriber entries in the core's startup CSV. Without a persistent MongoDB volume at `/data/db`, container recreation loses database-only changes. A normal container restart and a Compose recreation are different; `compose up` can recreate a container when its configuration changes.
+
+## Run the setup
+
+Run the following after the one-time setup. Do not run extra copies of `ptp4l` or `phc2sys` alongside the script; the lab host uses them instead of an NTP service to control its clock.
+
+**1. Power on the Falcon and wait for GNSS/PTP lock. Start the core:**
+
+```bash
+cd /home/mohit/Desktop/5gCore/ocudu_parent/ocudu/docker
+sudo docker compose up -d --wait 5gc
+```
+
+**2. From this repository, prepare the host:**
+
+```bash
+cd /path/to/OCUDU-Split7.2
+sudo ./start-ran650.sh --prepare
+```
+
+This sets MTU 9000, prepares VF 0 and 2 GiB of hugepages, and starts PTP and system-clock synchronization. It waits for both clocks to converge before returning.
+
+**3. Check the RU:**
+
+```bash
 ssh root@10.10.0.100
-```
-## Next step inside the RU
-
-Check RU synchronization state
-
-```text
-cat /var/syncmon/sync-state
-```
-Output should be 0 (means locked)
-
-```text
-cat /etc/ru-sync-mode
+# Reboot if you changed ru_config.cfg or the log says initialization failed:
+reboot
 ```
 
-Output should be PTP
+After it comes back, reconnect and check:
 
-If you get these outputs, it means the RAN650 is synchronized via the Falcon Grandmaster
+```bash
+tail -20 /tmp/logs/radio_sync_status
+tail -30 /tmp/logs/radio_status
+```
 
-Next run,
+Wait for `O-RU in PTP locked state`, `Transmission enabled (4x2)` and `Radio bringup complete`. Startup takes a few minutes. If the RU exhausted its synchronization retries before the Falcon was ready, reboot it now.
 
-oru_vlan_mac_info
+**4. Back on the host, start OCUDU:**
+
+```bash
+sudo ./start-ran650.sh
+```
+
+**5. Connect the Pixel:** insert the provisioned SIM, set APN `srsapn`, enable mobile data/5G, toggle airplane mode, and select `00101` / `OCUDU` if needed. With the four 30 dB attenuators, begin about 0.5–1 metre from the antennas. Disable Wi-Fi when testing cellular data.
+
+**6. Check the result:**
+
+```bash
+systemctl is-active ocudu-ran650-ptp ocudu-ran650-phc ocudu-ran650-gnb
+tail -f /tmp/gnb-benetel.log
+docker logs --since 5m open5gs_5gc 2>&1 | grep -E 'Registration complete|IPv4\['
+```
+
+Successful registration and a PDU session confirm attachment. The verified phone received `10.45.0.4` and answered 4/4 host pings; its dynamically allocated address may change. To ping from the host, ensure a route to the UE subnet exists:
+
+```bash
+sudo ip route replace 10.45.0.0/24 via 10.53.1.2
+ping <phone-IP>
+```
+
+The core also needs forwarding/NAT for the desired data path. Registration alone does not verify Internet access.
+
+Stop only the gNB with `sudo systemctl stop ocudu-ran650-gnb`. Leave the timing services running while the RU is in use. The script starts transient services; rerun it after a host reboot.
